@@ -18,7 +18,8 @@ def descargar_datos_mlb():
         
         juegos = response.json()
         
-        if not juegos:
+        # juegos es una lista directamente
+        if not isinstance(juegos, list) or len(juegos) == 0:
             print(f"No hay juegos programados para {hoy}")
             # Crear archivo vacío para que predict.py maneje el caso
             df_vacio = pd.DataFrame(columns=['away_team', 'home_team', 'diff_pct'])
@@ -28,43 +29,60 @@ def descargar_datos_mlb():
         juegos_data = []
         
         for juego in juegos:
-            if juego['status']['abstractGameState'] == 'Scheduled' or juego['status']['abstractGameState'] == 'Pre-Game':
+            try:
+                # Verificar que el juego está programado
+                game_state = juego.get('status', {}).get('abstractGameState', '')
+                if game_state not in ['Scheduled', 'Pre-Game', 'In Progress', 'Live']:
+                    continue
+                
+                # Extraer nombres de equipos
+                away_team = juego['teams']['away']['team']['name']
+                home_team = juego['teams']['home']['team']['name']
+                
+                away_id = juego['teams']['away']['team']['id']
+                home_id = juego['teams']['home']['team']['id']
+                
+                # Obtener récords de los equipos de la API
                 try:
-                    away_team = juego['teams']['away']['team']['name']
-                    home_team = juego['teams']['home']['team']['name']
-                    
-                    away_id = juego['teams']['away']['team']['id']
-                    home_id = juego['teams']['home']['team']['id']
-                    
-                    # Obtener estadísticas de los equipos
                     away_stats_url = f"https://statsapi.mlb.com/api/v1/teams/{away_id}"
                     home_stats_url = f"https://statsapi.mlb.com/api/v1/teams/{home_id}"
                     
-                    away_response = requests.get(away_stats_url).json()
-                    home_response = requests.get(home_stats_url).json()
+                    away_team_data = requests.get(away_stats_url).json()
+                    home_team_data = requests.get(home_stats_url).json()
                     
-                    # Obtener el récord actual (si está disponible en la temporada)
-                    away_wins = away_response.get('record', {}).get('wins', 0) if 'record' in away_response else 0
-                    away_losses = away_response.get('record', {}).get('losses', 0) if 'record' in away_response else 0
-                    home_wins = home_response.get('record', {}).get('wins', 0) if 'record' in home_response else 0
-                    home_losses = home_response.get('record', {}).get('losses', 0) if 'record' in home_response else 0
+                    # Acceder a los datos correctamente
+                    away_record = away_team_data.get('teams', [{}])[0].get('record', [{}])[0] if 'teams' in away_team_data else {}
+                    home_record = home_team_data.get('teams', [{}])[0].get('record', [{}])[0] if 'teams' in home_team_data else {}
                     
-                    # Calcular porcentaje de victorias
-                    away_pct = away_wins / (away_wins + away_losses) if (away_wins + away_losses) > 0 else 0.5
-                    home_pct = home_wins / (home_wins + home_losses) if (home_wins + home_losses) > 0 else 0.5
+                    away_wins = away_record.get('wins', 0)
+                    away_losses = away_record.get('losses', 0)
+                    home_wins = home_record.get('wins', 0)
+                    home_losses = home_record.get('losses', 0)
                     
-                    # Diferencia de porcentaje (local - visitante)
-                    diff_pct = home_pct - away_pct
-                    
-                    juegos_data.append({
-                        'away_team': away_team,
-                        'home_team': home_team,
-                        'diff_pct': diff_pct
-                    })
-                    
-                except Exception as e:
-                    print(f"Error procesando juego: {e}")
-                    continue
+                except:
+                    # Si no podemos obtener los récords, usar valores por defecto
+                    away_wins, away_losses = 0, 0
+                    home_wins, home_losses = 0, 0
+                
+                # Calcular porcentaje de victorias
+                away_pct = away_wins / (away_wins + away_losses) if (away_wins + away_losses) > 0 else 0.5
+                home_pct = home_wins / (home_wins + home_losses) if (home_wins + home_losses) > 0 else 0.5
+                
+                # Diferencia de porcentaje (local - visitante)
+                diff_pct = home_pct - away_pct
+                
+                juegos_data.append({
+                    'away_team': away_team,
+                    'home_team': home_team,
+                    'diff_pct': diff_pct
+                })
+                
+            except KeyError as ke:
+                print(f"Error de clave al procesar juego: {ke}")
+                continue
+            except Exception as e:
+                print(f"Error procesando juego: {e}")
+                continue
         
         # Guardar los datos en CSV
         if juegos_data:
