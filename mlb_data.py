@@ -1,11 +1,13 @@
 import requests
 import pandas as pd
 from datetime import datetime
+from pitcher_stats import extraer_metricas_lanzadores
 
 def descargar_datos_mlb():
     """
     Descarga los juegos de hoy desde la API de MLB Stats
-    y calcula la diferencia de porcentaje de victorias entre equipos.
+    y calcula la diferencia de porcentaje de victorias entre equipos,
+    más las métricas avanzadas de lanzadores usando Sabermetría.
     """
     try:
         # Obtener la fecha de hoy en formato YYYY-MM-DD
@@ -22,7 +24,11 @@ def descargar_datos_mlb():
         if not isinstance(juegos, list) or len(juegos) == 0:
             print(f"No hay juegos programados para {hoy}")
             # Crear archivo vacío para que predict.py maneje el caso
-            df_vacio = pd.DataFrame(columns=['away_team', 'home_team', 'diff_pct'])
+            df_vacio = pd.DataFrame(columns=[
+                'away_team', 'home_team', 'diff_pct',
+                'pitcher_away', 'pitcher_home',
+                'delta_FIP', 'delta_WAR', 'delta_K9', 'delta_BB9'
+            ])
             df_vacio.to_csv('juegos_hoy.csv', index=False)
             return
         
@@ -41,6 +47,7 @@ def descargar_datos_mlb():
                 
                 away_id = juego['teams']['away']['team']['id']
                 home_id = juego['teams']['home']['team']['id']
+                game_pk = juego.get('gamePk')
                 
                 # Obtener récords de los equipos de la API
                 try:
@@ -71,37 +78,60 @@ def descargar_datos_mlb():
                 # Diferencia de porcentaje (local - visitante)
                 diff_pct = home_pct - away_pct
                 
+                # Extraer métricas de lanzadores usando Sabermetría
+                print(f"\n🎯 Procesando juego: {away_team} @ {home_team}")
+                metricas_lanzadores = extraer_metricas_lanzadores(game_pk)
+                
                 juegos_data.append({
                     'away_team': away_team,
                     'home_team': home_team,
-                    'diff_pct': diff_pct
+                    'diff_pct': diff_pct,
+                    'pitcher_away': metricas_lanzadores.get('pitcher_away', 'Desconocido'),
+                    'pitcher_home': metricas_lanzadores.get('pitcher_home', 'Desconocido'),
+                    'delta_FIP': metricas_lanzadores.get('delta_FIP', 0.0),
+                    'delta_WAR': metricas_lanzadores.get('delta_WAR', 0.0),
+                    'delta_K9': metricas_lanzadores.get('delta_K9', 0.0),
+                    'delta_BB9': metricas_lanzadores.get('delta_BB9', 0.0),
                 })
                 
             except KeyError as ke:
-                print(f"Error de clave al procesar juego: {ke}")
+                print(f"❌ Error de clave al procesar juego: {ke}")
                 continue
             except Exception as e:
-                print(f"Error procesando juego: {e}")
+                print(f"❌ Error procesando juego: {e}")
                 continue
         
         # Guardar los datos en CSV
         if juegos_data:
             df = pd.DataFrame(juegos_data)
             df.to_csv('juegos_hoy.csv', index=False)
-            print(f"✓ {len(juegos_data)} juegos descargados y guardados en juegos_hoy.csv")
+            print(f"\n✅ {len(juegos_data)} juegos descargados y guardados en juegos_hoy.csv")
+            print(f"📊 Columnas incluidas: {df.columns.tolist()}")
         else:
-            print("No se pudieron procesar los juegos de hoy")
-            df_vacio = pd.DataFrame(columns=['away_team', 'home_team', 'diff_pct'])
+            print("⚠️ No se pudieron procesar los juegos de hoy")
+            df_vacio = pd.DataFrame(columns=[
+                'away_team', 'home_team', 'diff_pct',
+                'pitcher_away', 'pitcher_home',
+                'delta_FIP', 'delta_WAR', 'delta_K9', 'delta_BB9'
+            ])
             df_vacio.to_csv('juegos_hoy.csv', index=False)
             
     except requests.exceptions.RequestException as e:
-        print(f"Error al conectar con la API de MLB: {e}")
+        print(f"❌ Error al conectar con la API de MLB: {e}")
         # Crear archivo vacío para que el workflow continúe
-        df_vacio = pd.DataFrame(columns=['away_team', 'home_team', 'diff_pct'])
+        df_vacio = pd.DataFrame(columns=[
+            'away_team', 'home_team', 'diff_pct',
+            'pitcher_away', 'pitcher_home',
+            'delta_FIP', 'delta_WAR', 'delta_K9', 'delta_BB9'
+        ])
         df_vacio.to_csv('juegos_hoy.csv', index=False)
     except Exception as e:
-        print(f"Error inesperado: {e}")
-        df_vacio = pd.DataFrame(columns=['away_team', 'home_team', 'diff_pct'])
+        print(f"❌ Error inesperado: {e}")
+        df_vacio = pd.DataFrame(columns=[
+            'away_team', 'home_team', 'diff_pct',
+            'pitcher_away', 'pitcher_home',
+            'delta_FIP', 'delta_WAR', 'delta_K9', 'delta_BB9'
+        ])
         df_vacio.to_csv('juegos_hoy.csv', index=False)
 
 if __name__ == "__main__":
