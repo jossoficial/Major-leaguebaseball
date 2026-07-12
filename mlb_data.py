@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime
 from pitcher_stats import extraer_metricas_lanzadores
 from bateo_splits import obtener_estadisticas_bateo_splits
+from bullpen_fatiga import extraer_fatiga_bullpen, mapeo_team_id_nombres
 
 def obtener_tipo_lanzador(nombre_lanzador: str) -> str:
     """
@@ -34,12 +35,13 @@ def obtener_tipo_lanzador(nombre_lanzador: str) -> str:
 def descargar_datos_mlb():
     """
     Descarga los juegos de hoy desde la API de MLB Stats
-    con métricas avanzadas de lanzadores (Sabermetría) y de bateo (Splits).
+    con métricas avanzadas de lanzadores (Sabermetría), bateo (Splits) y bullpen.
     
     Genera un CSV con:
     - Datos básicos del juego
     - Estadísticas de lanzadores (FIP, WAR, K/9, BB/9)
     - Estadísticas de bateo por splits (wRC+, OPS, Fly Ball %)
+    - Fatiga del bullpen (0-100) para ambos equipos
     """
     try:
         # Obtener la fecha de hoy en formato YYYY-MM-DD
@@ -61,10 +63,14 @@ def descargar_datos_mlb():
                 'pitcher_away', 'pitcher_home',
                 'delta_FIP', 'delta_WAR', 'delta_K9', 'delta_BB9',
                 'wRC_plus_home', 'OPS_home', 'Fly_Ball_Pct_home',
-                'wRC_plus_away', 'OPS_away', 'Fly_Ball_Pct_away'
+                'wRC_plus_away', 'OPS_away', 'Fly_Ball_Pct_away',
+                'fatiga_bullpen_home', 'fatiga_bullpen_away'
             ])
             df_vacio.to_csv('juegos_hoy.csv', index=False)
             return
+        
+        # Obtener mapeo de equipo a team_id
+        mapeo_equipos = mapeo_team_id_nombres()
         
         juegos_data = []
         
@@ -143,6 +149,14 @@ def descargar_datos_mlb():
                         'Fly_Ball_Pct': 32.5
                     }
                 
+                # Extraer fatiga del bullpen
+                print(f"💪 Analizando estado del bullpen...")
+                fatiga_home = extraer_fatiga_bullpen(home_id, home_team)
+                fatiga_away = extraer_fatiga_bullpen(away_id, away_team)
+                
+                fatiga_home_score = fatiga_home.get('puntuacion_fatiga', 50.0)
+                fatiga_away_score = fatiga_away.get('puntuacion_fatiga', 50.0)
+                
                 juegos_data.append({
                     'away_team': away_team,
                     'home_team': home_team,
@@ -159,6 +173,8 @@ def descargar_datos_mlb():
                     'wRC_plus_away': stats_bateo_away.get('wRC_plus', 100.0),
                     'OPS_away': stats_bateo_away.get('OPS', 0.720),
                     'Fly_Ball_Pct_away': stats_bateo_away.get('Fly_Ball_Pct', 32.5),
+                    'fatiga_bullpen_home': fatiga_home_score,
+                    'fatiga_bullpen_away': fatiga_away_score,
                 })
                 
             except KeyError as ke:
@@ -175,9 +191,11 @@ def descargar_datos_mlb():
             print(f"\n✅ {len(juegos_data)} juegos descargados y guardados en juegos_hoy.csv")
             print(f"📊 Columnas incluidas: {df.columns.tolist()}")
             print(f"\n📈 Variables Machine Learning disponibles:")
-            print(f"   - Bateo: wRC+, OPS, Fly Ball %")
-            print(f"   - Lanzadores: FIP, WAR, K/9, BB/9")
-            print(f"   - Equipos: Porcentaje de victorias")
+            print(f"   📌 Bateo: wRC+ (home/away), OPS (home/away), Fly Ball % (home/away)")
+            print(f"   📌 Lanzadores: delta_FIP, delta_WAR, delta_K9, delta_BB9")
+            print(f"   📌 Bullpen: fatiga_bullpen_home (0-100), fatiga_bullpen_away (0-100)")
+            print(f"   📌 Equipos: diff_pct (porcentaje de victorias)")
+            print(f"\n💡 Total de features: 17 variables premium para XGBoost/CatBoost")
         else:
             print("⚠️ No se pudieron procesar los juegos de hoy")
             df_vacio = pd.DataFrame(columns=[
@@ -185,7 +203,8 @@ def descargar_datos_mlb():
                 'pitcher_away', 'pitcher_home',
                 'delta_FIP', 'delta_WAR', 'delta_K9', 'delta_BB9',
                 'wRC_plus_home', 'OPS_home', 'Fly_Ball_Pct_home',
-                'wRC_plus_away', 'OPS_away', 'Fly_Ball_Pct_away'
+                'wRC_plus_away', 'OPS_away', 'Fly_Ball_Pct_away',
+                'fatiga_bullpen_home', 'fatiga_bullpen_away'
             ])
             df_vacio.to_csv('juegos_hoy.csv', index=False)
             
@@ -197,7 +216,8 @@ def descargar_datos_mlb():
             'pitcher_away', 'pitcher_home',
             'delta_FIP', 'delta_WAR', 'delta_K9', 'delta_BB9',
             'wRC_plus_home', 'OPS_home', 'Fly_Ball_Pct_home',
-            'wRC_plus_away', 'OPS_away', 'Fly_Ball_Pct_away'
+            'wRC_plus_away', 'OPS_away', 'Fly_Ball_Pct_away',
+            'fatiga_bullpen_home', 'fatiga_bullpen_away'
         ])
         df_vacio.to_csv('juegos_hoy.csv', index=False)
     except Exception as e:
@@ -207,7 +227,8 @@ def descargar_datos_mlb():
             'pitcher_away', 'pitcher_home',
             'delta_FIP', 'delta_WAR', 'delta_K9', 'delta_BB9',
             'wRC_plus_home', 'OPS_home', 'Fly_Ball_Pct_home',
-            'wRC_plus_away', 'OPS_away', 'Fly_Ball_Pct_away'
+            'wRC_plus_away', 'OPS_away', 'Fly_Ball_Pct_away',
+            'fatiga_bullpen_home', 'fatiga_bullpen_away'
         ])
         df_vacio.to_csv('juegos_hoy.csv', index=False)
 
