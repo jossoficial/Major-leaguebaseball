@@ -38,4 +38,4 @@ jobs:
         git config --global user.email "actions@github.com"
         git add juegos_hoy.csv PREDICCIONES.md || true
         git commit -m "Predicciones del día actualizadas de forma automática" || true
-        git push
+        git push true
