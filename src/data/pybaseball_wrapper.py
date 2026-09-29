@@ -1,73 +1,43 @@
-from typing import Optional, Dict
-from datetime import datetime
+import pandas as pd
 
-class PyBaseballWrapper:
+from src.data.cache_manager import CacheManager
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+class PybaseballWrapper:
+    """Wrapper con cache para pybaseball (FanGraphs / Baseball Reference).
+
+    Provee stats de temporada COMPLETA. Para backtests sin data leakage
+    usar AsOfStatsProvider (historical_loader).
     """
-    Wrapper centralizado para llamadas a pybaseball.
-    Simplifica manejo de errores y fallbacks.
-    """
-    
-    @staticmethod
-    def obtener_estadisticas_lanzador(nombre_lanzador: str) -> Optional[Dict]:
-        """
-        Obtiene estadísticas de un lanzador.
-        
-        Args:
-            nombre_lanzador: Nombre del lanzador
-            
-        Returns:
-            Dict con FIP, WAR, K/9, BB/9 o None
-        """
+
+    def __init__(self):
+        self.cache = CacheManager("sabermetrics")
         try:
-            from pybaseball import pitching_stats
-            
-            año_actual = datetime.now().year
-            pitcher_data = pitching_stats(año_actual, año_actual)
-            
-            # Búsqueda flexible por apellido
-            nombre_limpio = nombre_lanzador.lower().strip()
-            coincidencias = pitcher_data[
-                pitcher_data['Name'].str.lower().str.contains(nombre_limpio.split()[-1], na=False)
-            ]
-            
-            if coincidencias.empty:
-                print(f"⚠️ No encontrado: {nombre_lanzador}")
-                return None
-            
-            stats = coincidencias.iloc[0]
-            return {
-                'nombre': stats.get('Name', nombre_lanzador),
-                'FIP': stats.get('FIP', None),
-                'WAR': stats.get('WAR', None),
-                'K/9': stats.get('K/9', None),
-                'BB/9': stats.get('BB/9', None),
-            }
-        except Exception as e:
-            print(f"❌ Error obteniendo estadísticas: {e}")
-            return None
-    
-    @staticmethod
-    def obtener_datos_statcast(fecha_inicio: str, fecha_fin: str, pitcher_id: int):
-        """
-        Obtiene datos statcast para un lanzador.
-        
-        Args:
-            fecha_inicio: Fecha inicio (YYYY-MM-DD)
-            fecha_fin: Fecha fin (YYYY-MM-DD)
-            pitcher_id: ID del lanzador
-            
-        Returns:
-            DataFrame con datos statcast
-        """
-        try:
-            from pybaseball import statcast_pitcher
-            
-            df = statcast_pitcher(fecha_inicio, fecha_fin, pitcher_id)
-            if df is None or df.empty:
-                print(f"⚠️ Sin datos statcast para pitcher_id={pitcher_id}")
-                return None
-            
-            return df
-        except Exception as e:
-            print(f"❌ Error obteniendo statcast: {e}")
-            return None
+            import pybaseball  # noqa: F401
+        except ImportError:
+            raise ImportError("Instala pybaseball: pip install pybaseball")
+
+    def pitching_stats(self, season: int) -> pd.DataFrame:
+        from pybaseball import pitching_stats
+        return self.cache.get_or_fetch(f"pitching_{season}",
+                                       lambda: pitching_stats(season))
+
+    def batting_stats(self, season: int) -> pd.DataFrame:
+        from pybaseball import batting_stats
+        return self.cache.get_or_fetch(f"batting_{season}",
+                                       lambda: batting_stats(season))
+
+    def standings(self, season: int) -> pd.DataFrame:
+        from pybaseball import standings
+        return self.cache.get_or_fetch(f"standings_{season}",
+                                       lambda: pd.concat(standings(season),
+                                                         ignore_index=True))
+
+    def schedule_and_record(self, season: int, team: str) -> pd.DataFrame:
+        from pybaseball import schedule_and_record
+        return self.cache.get_or_fetch(
+            f"record_{season}_{team}",
+            lambda: schedule_and_record(season, team))
