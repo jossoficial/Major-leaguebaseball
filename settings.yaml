@@ -1,0 +1,47 @@
+paths:
+  cache_dir: ".cache"
+  data_dir: "data"
+  reports_dir: "reports"
+  models_dir: "models"
+
+api:
+  rate_limit_sleep: 0.35
+  max_retries: 3
+  timeout: 15
+
+cache:
+  ttl_hours:
+    schedule: 1
+    standings: 6
+    pitcher: 24
+    batting: 24
+    bullpen: 6
+    context: 6
+    historical: 168
+    asof_stats: 168
+    boxscore: 168
+
+model:
+  test_size: 0.2
+  random_state: 42
+  catboost:
+    iterations: 800
+    learning_rate: 0.03
+    depth: 6
+  xgboost:
+    n_estimators: 800
+    learning_rate: 0.03
+    max_depth: 5
+
+backtest:
+  n_splits: 5
+
+bankroll:
+  unidad_base: 100
+  kelly_fraction: 0.25
+  max_stake_pct: 0.02
+  min_edge: 0.03
+
+odds:
+  default_odds_home: -110
+  default_odds_away: -110
