@@ -1,0 +1,12 @@
+services:
+  mlb-pipeline:
+    build: .
+    image: mlb-sabermetrics:local
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./reports:/app/reports
+      - ./.cache:/app/.cache
+    command: ["predict"]

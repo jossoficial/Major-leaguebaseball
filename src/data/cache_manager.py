@@ -13,11 +13,7 @@ logger = get_logger(__name__)
 
 
 class CacheManager:
-    """Cache unificado por categoria con TTL configurable.
-
-    - DataFrames  -> .parquet + .meta (timestamp)
-    - JSON/dicts  -> .json + .meta
-    """
+    """Cache local con TTL, nombres no predecibles y tolerancia a entradas corruptas."""
 
     def __init__(self, category: str, ttl_hours: float | None = None):
         self.category = category
@@ -27,31 +23,40 @@ class CacheManager:
         self.dir.mkdir(parents=True, exist_ok=True)
 
     def _path(self, key: str, ext: str) -> Path:
-        h = hashlib.md5(key.encode()).hexdigest()
+        h = hashlib.sha256(key.encode("utf-8")).hexdigest()
         return self.dir / f"{h}.{ext}"
 
     def _fresh(self, path: Path) -> bool:
         meta = path.with_suffix(".meta")
         if not path.exists() or not meta.exists():
             return False
-        created = json.loads(meta.read_text()).get("created", 0)
-        return (datetime.now().timestamp() - created) <= self.ttl.total_seconds()
+        try:
+            created = float(json.loads(meta.read_text(encoding="utf-8")).get("created", 0))
+            return datetime.now().timestamp() - created <= self.ttl.total_seconds()
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            logger.warning("Entrada de caché corrupta: %s", path)
+            return False
 
     def _stamp(self, path: Path) -> None:
         path.with_suffix(".meta").write_text(
-            json.dumps({"created": datetime.now().timestamp()}))
+            json.dumps({"created": datetime.now().timestamp()}), encoding="utf-8"
+        )
 
-    # ---------------- DataFrames ----------------
     def get(self, key: str) -> pd.DataFrame | None:
         path = self._path(key, "parquet")
         if not self._fresh(path):
             return None
-        logger.debug("Cache HIT [%s] %s", self.category, key)
-        return pd.read_parquet(path)
+        try:
+            return pd.read_parquet(path)
+        except (OSError, ValueError, ImportError) as exc:
+            logger.warning("No se pudo leer caché %s: %s", path, exc)
+            return None
 
     def set(self, key: str, df: pd.DataFrame) -> None:
         path = self._path(key, "parquet")
-        df.to_parquet(path, index=False)
+        tmp = path.with_suffix(".tmp.parquet")
+        df.to_parquet(tmp, index=False)
+        tmp.replace(path)
         self._stamp(path)
 
     def get_or_fetch(self, key: str, fetch_fn: Callable[[], pd.DataFrame]) -> pd.DataFrame:
@@ -62,27 +67,34 @@ class CacheManager:
         self.set(key, df)
         return df
 
-    # ---------------- JSON ----------------
     def get_json(self, key: str) -> dict | list | None:
         path = self._path(key, "json")
         if not self._fresh(path):
             return None
-        return json.loads(path.read_text())
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            logger.warning("JSON de caché inválido: %s", path)
+            return None
 
     def set_json(self, key: str, obj: dict | list) -> None:
         path = self._path(key, "json")
-        path.write_text(json.dumps(obj))
+        tmp = path.with_suffix(".tmp.json")
+        tmp.write_text(json.dumps(obj), encoding="utf-8")
+        tmp.replace(path)
         self._stamp(path)
 
-    # ---------------- utilidades ----------------
     def clear_expired(self) -> int:
         removed = 0
         for meta in self.dir.glob("*.meta"):
-            data = meta.with_suffix("")
-            created = json.loads(meta.read_text()).get("created", 0)
+            try:
+                created = float(json.loads(meta.read_text(encoding="utf-8")).get("created", 0))
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                created = 0
             if datetime.now().timestamp() - created > self.ttl.total_seconds():
-                for p in (meta, data):
-                    if p.exists():
-                        p.unlink()
+                data = meta.with_suffix("")
+                for path in (meta, data):
+                    if path.exists():
+                        path.unlink()
                         removed += 1
         return removed

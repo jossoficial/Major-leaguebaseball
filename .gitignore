@@ -1,9 +1,33 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.so
+
+# Environments and secrets
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# Runtime data
 .cache/
 data/
 models/
 reports/
-.env
-.venv/
+*.pkl
+*.pickle
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 .ipynb_checkpoints/
+.DS_Store
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
