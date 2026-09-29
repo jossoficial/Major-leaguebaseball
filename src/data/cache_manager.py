@@ -1,105 +1,88 @@
-import os
-import json
-from datetime import datetime
-from typing import Dict, Optional
 import hashlib
+import json
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Callable
+
+import pandas as pd
+
+from src.utils.constants import CACHE_DIR, SETTINGS
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class CacheManager:
+    """Cache unificado por categoria con TTL configurable.
+
+    - DataFrames  -> .parquet + .meta (timestamp)
+    - JSON/dicts  -> .json + .meta
     """
-    Gestor de caché centralizado para evitar saturar APIs externas.
-    Implementa invalidación automática por fecha.
-    """
-    
-    def __init__(self, cache_dir: str = '.cache'):
-        self.cache_dir = cache_dir
-        self.fecha_hoy = datetime.today().strftime('%Y-%m-%d')
-        
-        if not os.path.exists(cache_dir):
-            os.makedirs(cache_dir)
-    
-    def _generar_clave(self, *args) -> str:
-        """
-        Genera una clave hash única para una consulta.
-        
-        Args:
-            *args: Componentes de la clave
-            
-        Returns:
-            Hash MD5 de la clave
-        """
-        clave_str = "_".join(str(arg) for arg in args) + f"_{self.fecha_hoy}"
-        return hashlib.md5(clave_str.encode()).hexdigest()
-    
-    def _obtener_ruta(self, categoria: str, clave: str) -> str:
-        """
-        Obtiene la ruta del archivo de caché.
-        
-        Args:
-            categoria: Tipo de dato (bateo, bullpen, pitcher, etc)
-            clave: Hash de la consulta
-            
-        Returns:
-            Ruta del archivo
-        """
-        categoria_dir = os.path.join(self.cache_dir, categoria)
-        if not os.path.exists(categoria_dir):
-            os.makedirs(categoria_dir)
-        return os.path.join(categoria_dir, f"{clave}.json")
-    
-    def obtener(self, categoria: str, *args) -> Optional[Dict]:
-        """
-        Obtiene datos del caché si existen.
-        
-        Args:
-            categoria: Tipo de dato
-            *args: Parámetros de búsqueda
-            
-        Returns:
-            Diccionario con datos o None
-        """
-        clave = self._generar_clave(*args)
-        ruta = self._obtener_ruta(categoria, clave)
-        
-        if os.path.exists(ruta):
-            try:
-                with open(ruta, 'r') as f:
-                    datos = json.load(f)
-                    print(f"✅ Caché hit: {categoria}")
-                    return datos
-            except Exception as e:
-                print(f"⚠️ Error leyendo caché: {e}")
-                return None
-        
-        return None
-    
-    def guardar(self, categoria: str, datos: Dict, *args) -> None:
-        """
-        Guarda datos en el caché.
-        
-        Args:
-            categoria: Tipo de dato
-            datos: Diccionario a guardar
-            *args: Parámetros de búsqueda
-        """
-        clave = self._generar_clave(*args)
-        ruta = self._obtener_ruta(categoria, clave)
-        
-        try:
-            with open(ruta, 'w') as f:
-                json.dump(datos, f, indent=2)
-                print(f"💾 Caché guardado: {categoria}")
-        except Exception as e:
-            print(f"⚠️ Error guardando caché: {e}")
-    
-    def limpiar_categoria(self, categoria: str) -> None:
-        """
-        Limpia todos los archivos de una categoría.
-        
-        Args:
-            categoria: Tipo de dato a limpiar
-        """
-        categoria_dir = os.path.join(self.cache_dir, categoria)
-        if os.path.exists(categoria_dir):
-            for archivo in os.listdir(categoria_dir):
-                os.remove(os.path.join(categoria_dir, archivo))
-            print(f"🗑️ Caché limpiado: {categoria}")
+
+    def __init__(self, category: str, ttl_hours: float | None = None):
+        self.category = category
+        default = SETTINGS["cache"]["ttl_hours"].get(category, 24)
+        self.ttl = timedelta(hours=ttl_hours if ttl_hours is not None else default)
+        self.dir = Path(CACHE_DIR) / category
+        self.dir.mkdir(parents=True, exist_ok=True)
+
+    def _path(self, key: str, ext: str) -> Path:
+        h = hashlib.md5(key.encode()).hexdigest()
+        return self.dir / f"{h}.{ext}"
+
+    def _fresh(self, path: Path) -> bool:
+        meta = path.with_suffix(".meta")
+        if not path.exists() or not meta.exists():
+            return False
+        created = json.loads(meta.read_text()).get("created", 0)
+        return (datetime.now().timestamp() - created) <= self.ttl.total_seconds()
+
+    def _stamp(self, path: Path) -> None:
+        path.with_suffix(".meta").write_text(
+            json.dumps({"created": datetime.now().timestamp()}))
+
+    # ---------------- DataFrames ----------------
+    def get(self, key: str) -> pd.DataFrame | None:
+        path = self._path(key, "parquet")
+        if not self._fresh(path):
+            return None
+        logger.debug("Cache HIT [%s] %s", self.category, key)
+        return pd.read_parquet(path)
+
+    def set(self, key: str, df: pd.DataFrame) -> None:
+        path = self._path(key, "parquet")
+        df.to_parquet(path, index=False)
+        self._stamp(path)
+
+    def get_or_fetch(self, key: str, fetch_fn: Callable[[], pd.DataFrame]) -> pd.DataFrame:
+        cached = self.get(key)
+        if cached is not None:
+            return cached
+        df = fetch_fn()
+        self.set(key, df)
+        return df
+
+    # ---------------- JSON ----------------
+    def get_json(self, key: str) -> dict | list | None:
+        path = self._path(key, "json")
+        if not self._fresh(path):
+            return None
+        return json.loads(path.read_text())
+
+    def set_json(self, key: str, obj: dict | list) -> None:
+        path = self._path(key, "json")
+        path.write_text(json.dumps(obj))
+        self._stamp(path)
+
+    # ---------------- utilidades ----------------
+    def clear_expired(self) -> int:
+        removed = 0
+        for meta in self.dir.glob("*.meta"):
+            data = meta.with_suffix("")
+            created = json.loads(meta.read_text()).get("created", 0)
+            if datetime.now().timestamp() - created > self.ttl.total_seconds():
+                for p in (meta, data):
+                    if p.exists():
+                        p.unlink()
+                        removed += 1
+        return removed
