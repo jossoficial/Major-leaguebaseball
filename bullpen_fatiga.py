@@ -6,7 +6,6 @@ from typing import Dict, Optional, Tuple
 import json
 
 def mapeo_team_id_nombres() -> Dict[int, str]:
-    """Retorna el mapeo de IDs de la MLB a nombres de equipos oficiales."""
     return {
         109: "Arizona Diamondbacks", 144: "Atlanta Braves", 110: "Baltimore Orioles",
         111: "Boston Red Sox", 112: "Chicago Cubs", 145: "Chicago White Sox",
@@ -21,42 +20,37 @@ def mapeo_team_id_nombres() -> Dict[int, str]:
     }
 
 def extraer_fatiga_bullpen(team_id: int, nombre_equipo: str) -> Optional[Dict]:
-    """Función de interfaz compatible con mlb_data.py"""
     gestor = GestorFatigaBullpen()
     return gestor.calcular_fatiga_bullpen(team_id, nombre_equipo)
 
 class GestorFatigaBullpen:
-    """
-    Gestor avanzado para evaluar el estado del bullpen de un equipo.
-    Analiza los últimos 3 días de boxscores para calcular:
-    - Lanzamientos acumulados por relevista
-    - Días consecutivos del cerrador
-    - Métrica de fatiga del bullpen (0-100)
-    """
-    
     def __init__(self, cache_dir: str = '.cache_bullpen'):
         self.cache_dir = cache_dir
         self.fecha_hoy = datetime.today().strftime('%Y-%m-%d')
         self.url_base_mlb = "https://mlb.com"
+        # Cabeceras globales para saltar bloqueos de API de la MLB
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9"
+        }
         
         if not os.path.exists(cache_dir):
             os.makedirs(cache_dir)
     
     def obtener_juegos_equipo_3dias(self, team_id: int) -> list:
-        """Obtiene los IDs de juegos reales de un equipo en los últimos 3 días."""
         try:
             hoy = datetime.today()
             hace_3_dias = (hoy - timedelta(days=3)).strftime('%Y-%m-%d')
             hoy_str = hoy.strftime('%Y-%m-%d')
             
             url = f"{self.url_base_mlb}/schedule?sportId=1&teamId={team_id}&startDate={hace_3_dias}&endDate={hoy_str}"
-            response = requests.get(url, timeout=30)
+            response = requests.get(url, headers=self.headers, timeout=30)
             response.raise_for_status()
             
             datos_schedule = response.json()
             game_pks = []
             
-            # Navegación corregida y segura por la estructura real de la API
             for fecha_obj in datos_schedule.get("dates", []):
                 for juego in fecha_obj.get("games", []):
                     estado_juego = juego.get('status', {}).get('abstractGameState', '')
@@ -73,10 +67,9 @@ class GestorFatigaBullpen:
             return []
     
     def obtener_boxscore_juego(self, game_pk: int) -> Optional[Dict]:
-        """Obtiene el boxscore completo de un juego."""
         try:
             url = f"{self.url_base_mlb}/game/{game_pk}/boxscore"
-            response = requests.get(url, timeout=30)
+            response = requests.get(url, headers=self.headers, timeout=30)
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -84,7 +77,6 @@ class GestorFatigaBullpen:
             return None
     
     def extraer_relevistas_juego(self, boxscore: Dict, team_id: int) -> Dict[str, int]:
-        """Extrae los relevistas y su cuenta de lanzamientos de un juego."""
         relevistas = {}
         try:
             home_id = boxscore['teams']['home']['team']['id']
@@ -103,7 +95,6 @@ class GestorFatigaBullpen:
             return {}
     
     def identificar_cerrador(self, boxscore: Dict, team_id: int) -> Optional[str]:
-        """Identifica al cerrador (último pitcher en lanzar) del equipo."""
         try:
             home_id = boxscore['teams']['home']['team']['id']
             team_key = 'home' if home_id == team_id else 'away'
@@ -123,7 +114,6 @@ class GestorFatigaBullpen:
             return None
     
     def calcular_fatiga_bullpen(self, team_id: int, nombre_equipo: str) -> Optional[Dict]:
-        """Calcula la métrica de fatiga real del bullpen para un equipo (0-100)."""
         try:
             print(f"\n🔍 Analizando fatiga del bullpen para {nombre_equipo}...")
             game_pks = self.obtener_juegos_equipo_3dias(team_id)
@@ -159,7 +149,6 @@ class GestorFatigaBullpen:
             num_relevistas_activos = len(lanzamientos_relevistas)
             dias_cerrador_consecutivos = max(dias_consecutivos_cerrador.values()) if dias_consecutivos_cerrador else 0
             
-            # Algoritmo matemático real de fatiga (0 a 100)
             factor_lanzamientos = min(total_lanzamientos / 300.0, 1.0) * 50
             factor_relevistas = max(0, (5 - num_relevistas_activos) * 10) if num_relevistas_activos < 5 else 0
             factor_cerrador = min(dias_cerrador_consecutivos * 20, 30)
