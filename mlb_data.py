@@ -1,6 +1,6 @@
 import requests
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 from pitcher_stats import extraer_metricas_lanzadores
 from bateo_splits import obtener_estadisticas_bateo_splits
 from bullpen_fatiga import extraer_fatiga_bullpen, mapeo_team_id_nombres
@@ -44,18 +44,24 @@ def descargar_datos_mlb():
     - Fatiga del bullpen (0-100) para ambos equipos
     """
     try:
-        # Obtener la fecha de hoy en formato YYYY-MM-DD
-        hoy = datetime.today().strftime('%Y-%m-%d')
+        # Obtener la fecha de hoy en UTC en formato YYYY-MM-DD
+        hoy = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        print(f"📅 Buscando juegos para: {hoy}")
         
         # API de MLB Stats
         url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={hoy}"
-        response = requests.get(url)
+        response = requests.get(url, timeout=30)
         response.raise_for_status()
         
-        juegos = response.json()
+        juegos_response = response.json()
         
-        # juegos es una lista directamente
-        if not isinstance(juegos, list) or len(juegos) == 0:
+        # La API devuelve {"dates": [{"date": "...", "games": [...]}]}
+        # Extraer la lista de juegos anidada correctamente
+        juegos = []
+        for fecha_obj in juegos_response.get("dates", []):
+            juegos.extend(fecha_obj.get("games", []))
+        
+        if not juegos:
             print(f"No hay juegos programados para {hoy}")
             # Crear archivo vacío para que predict.py maneje el caso
             df_vacio = pd.DataFrame(columns=[
@@ -94,8 +100,8 @@ def descargar_datos_mlb():
                     away_stats_url = f"https://statsapi.mlb.com/api/v1/teams/{away_id}"
                     home_stats_url = f"https://statsapi.mlb.com/api/v1/teams/{home_id}"
                     
-                    away_team_data = requests.get(away_stats_url).json()
-                    home_team_data = requests.get(home_stats_url).json()
+                    away_team_data = requests.get(away_stats_url, timeout=30).json()
+                    home_team_data = requests.get(home_stats_url, timeout=30).json()
                     
                     # Acceder a los datos correctamente
                     away_record = away_team_data.get('teams', [{}])[0].get('record', [{}])[0] if 'teams' in away_team_data else {}
