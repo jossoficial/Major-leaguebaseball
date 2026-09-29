@@ -1,111 +1,46 @@
-import requests
-from datetime import datetime, timedelta
-from typing import Dict, Optional, List
+import time
 
-class MLBStatsAPIClient:
-    """
-    Cliente para la MLB Stats API.
-    Gestiona todas las llamadas HTTP a https://statsapi.mlb.com/api/v1
-    """
-    
+import requests
+
+from src.utils.constants import MLB_BASE_URL, SETTINGS, USER_AGENT
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+class MLBAPIClient:
+    """Cliente centralizado con retries, backoff y rate-limit para la MLB Stats API."""
+
     def __init__(self):
-        self.base_url = "https://statsapi.mlb.com/api/v1"
+        cfg = SETTINGS["api"]
         self.session = requests.Session()
-    
-    def get_schedule(self, date: str, sport_id: int = 1) -> List[Dict]:
-        """
-        Obtiene los juegos programados para una fecha.
-        
-        Args:
-            date: Fecha en formato YYYY-MM-DD
-            sport_id: ID del deporte (1 = MLB)
-            
-        Returns:
-            Lista de diccionarios con información de juegos
-        """
-        try:
-            url = f"{self.base_url}/schedule?sportId={sport_id}&date={date}"
-            response = self.session.get(url)
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            print(f"❌ Error obteniendo schedule: {e}")
-            return []
-    
-    def get_game(self, game_pk: int) -> Optional[Dict]:
-        """
-        Obtiene datos detallados de un juego.
-        
-        Args:
-            game_pk: ID del juego
-            
-        Returns:
-            Diccionario con datos del juego
-        """
-        try:
-            url = f"{self.base_url}/game/{game_pk}"
-            response = self.session.get(url)
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            print(f"❌ Error obteniendo game {game_pk}: {e}")
-            return None
-    
-    def get_boxscore(self, game_pk: int) -> Optional[Dict]:
-        """
-        Obtiene el boxscore de un juego.
-        
-        Args:
-            game_pk: ID del juego
-            
-        Returns:
-            Diccionario con boxscore
-        """
-        try:
-            url = f"{self.base_url}/game/{game_pk}/boxscore"
-            response = self.session.get(url)
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            print(f"❌ Error obteniendo boxscore {game_pk}: {e}")
-            return None
-    
-    def get_team_schedule(self, team_id: int, start_date: str, end_date: str) -> List[Dict]:
-        """
-        Obtiene el schedule de un equipo en un rango de fechas.
-        
-        Args:
-            team_id: ID del equipo
-            start_date: Fecha inicio (YYYY-MM-DD)
-            end_date: Fecha fin (YYYY-MM-DD)
-            
-        Returns:
-            Lista de juegos
-        """
-        try:
-            url = f"{self.base_url}/schedule?sportId=1&teamId={team_id}&startDate={start_date}&endDate={end_date}"
-            response = self.session.get(url)
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            print(f"❌ Error obteniendo team schedule: {e}")
-            return []
-    
-    def get_team(self, team_id: int) -> Optional[Dict]:
-        """
-        Obtiene información del equipo.
-        
-        Args:
-            team_id: ID del equipo
-            
-        Returns:
-            Diccionario con datos del equipo
-        """
-        try:
-            url = f"{self.base_url}/teams/{team_id}"
-            response = self.session.get(url)
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            print(f"❌ Error obteniendo team {team_id}: {e}")
-            return None
+        self.session.headers.update({"User-Agent": USER_AGENT})
+        self.max_retries = cfg["max_retries"]
+        self.timeout = cfg["timeout"]
+        self.sleep = cfg["rate_limit_sleep"]
+
+    def get(self, path: str, **params):
+        url = path if path.startswith("http") else f"{MLB_BASE_URL}{path}"
+        for attempt in range(self.max_retries):
+            try:
+                time.sleep(self.sleep)
+                resp = self.session.get(url, params=params, timeout=self.timeout)
+                resp.raise_for_status()
+                return resp.json()
+            except requests.RequestException as exc:
+                wait = 2 ** attempt
+                logger.warning("Intento %d/%d fallo: %s | esperando %ds",
+                               attempt + 1, self.max_retries, exc, wait)
+                time.sleep(wait)
+        raise RuntimeError(f"No se pudo consultar {url} tras {self.max_retries} intentos")
+
+    def schedule(self, start_date: str, end_date: str,
+                 hydrate: str = "team,probablePitcher,linescore") -> dict:
+        return self.get("/schedule", sportId=1, startDate=start_date,
+                        endDate=end_date, hydrate=hydrate)
+
+    def boxscore(self, game_pk: int) -> dict:
+        return self.get(f"/game/{game_pk}/boxscore")
+
+    def standings(self, season: int) -> dict:
+        return self.get("/standings", leagueId="103,104", season=season)
