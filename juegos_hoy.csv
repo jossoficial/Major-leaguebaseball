@@ -1,2 +1,1 @@
 away_team,home_team,diff_pct,pitcher_away,pitcher_home,delta_FIP,delta_WAR,delta_K9,delta_BB9,wRC_plus_home,OPS_home,Fly_Ball_Pct_home,wRC_plus_away,OPS_away,Fly_Ball_Pct_away,fatiga_bullpen_home,fatiga_bullpen_away
-Philadelphia Phillies,Atlanta Braves,0.0,,,,,,,100.0,0.72,32.5,100.0,0.72,32.5,50.0,50.0
