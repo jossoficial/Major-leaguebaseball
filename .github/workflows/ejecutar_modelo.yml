@@ -1,0 +1,57 @@
+name: MLB Predictor Automatico
+
+on:
+  schedule:
+    # Se ejecuta todos los días a las 10:00 AM UTC (Ajusta según tu zona horaria)
+    - cron: '0 10 * * *'
+  workflow_dispatch: # Te permite activar el modelo manualmente haciendo clic en un botón desde el móvil
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Permiso crucial para que la máquina pueda guardar el reporte en tu GitHub
+
+    steps:
+    - name: Clonar Repositorio
+      uses: actions/checkout@v4
+
+    - name: Configurar Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Instalar Dependencias
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Descargar Datos MLB API
+      run: python mlb_data.py
+
+    - name: Generar Predicciones Machine Learning
+      run: python predict.py
+
+    - name: Guardar y Publicar Resultados
+      shell: bash
+      run: |
+        set -e
+
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+        # Añadir los archivos generados. PREDICCIONES.md es opcional porque
+        # algunas ejecuciones pueden no generarlo.
+        git add juegos_hoy.csv
+        if [[ -f PREDICCIONES.md ]]; then
+          git add PREDICCIONES.md
+        fi
+
+        # No fallar si la ejecución no produjo cambios.
+        if git diff --cached --quiet; then
+          echo "No hay cambios para publicar."
+          exit 0
+        fi
+
+        git commit -m "Predicciones del día actualizadas de forma automática"
+        git push origin HEAD:main
