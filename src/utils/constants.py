@@ -1,64 +1,37 @@
-"""Constantes centralizadas de la aplicación."""
+from pathlib import Path
 
-# Mapeo de equipos
-TEAM_ID_MAP = {
-    'Arizona Diamondbacks': 109,
-    'Atlanta Braves': 144,
-    'Baltimore Orioles': 110,
-    'Boston Red Sox': 111,
-    'Chicago Cubs': 112,
-    'Chicago White Sox': 145,
-    'Cincinnati Reds': 113,
-    'Cleveland Guardians': 114,
-    'Colorado Rockies': 115,
-    'Detroit Tigers': 116,
-    'Houston Astros': 117,
-    'Kansas City Royals': 118,
-    'Los Angeles Angels': 108,
-    'Los Angeles Dodgers': 119,
-    'Miami Marlins': 146,
-    'Milwaukee Brewers': 158,
-    'Minnesota Twins': 142,
-    'New York Mets': 121,
-    'New York Yankees': 147,
-    'Oakland Athletics': 133,
-    'Philadelphia Phillies': 143,
-    'Pittsburgh Pirates': 23,
-    'San Diego Padres': 25,
-    'San Francisco Giants': 137,
-    'Seattle Mariners': 136,
-    'St. Louis Cardinals': 138,
-    'Tampa Bay Rays': 139,
-    'Texas Rangers': 140,
-    'Toronto Blue Jays': 141,
-    'Washington Nationals': 120,
-}
+import yaml
 
-# Directorio de caché
-CACHE_DIR = '.cache'
+ROOT = Path(__file__).resolve().parents[2]
 
-# MLB Stats API
-MLB_API_BASE_URL = 'https://statsapi.mlb.com/api/v1'
 
-# Valores por defecto para sabermetría
-DEFAULT_PITCHER_STATS = {
-    'FIP': 4.0,
-    'WAR': 0.0,
-    'K/9': 8.0,
-    'BB/9': 3.0
-}
+def load_settings(path: Path | None = None) -> dict:
+    path = path or ROOT / "config" / "settings.yaml"
+    with open(path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
 
-# Valores por defecto para bateo
-DEFAULT_BATTING_STATS = {
-    'wRC_plus': 100.0,
-    'OPS': 0.720,
-    'Fly_Ball_Pct': 32.5
-}
 
-# Thresholds de fatiga bullpen
-BULLPEN_FATIGUE_THRESHOLDS = {
-    'fresh': (0, 30),      # Verde
-    'normal': (30, 60),    # Amarillo
-    'fatigued': (60, 80),  # Naranja
-    'exhausted': (80, 100) # Rojo
+SETTINGS = load_settings()
+
+CACHE_DIR = ROOT / SETTINGS["paths"]["cache_dir"]
+DATA_DIR = ROOT / SETTINGS["paths"]["data_dir"]
+REPORTS_DIR = ROOT / SETTINGS["paths"]["reports_dir"]
+MODELS_DIR = ROOT / SETTINGS["paths"]["models_dir"]
+
+MLB_BASE_URL = "https://statsapi.mlb.com/api/v1"
+USER_AGENT = "mlb-sabermetrics-pipeline/2.0"
+
+# Abreviatura -> nombre completo (segun MLB Stats API)
+TEAM_NAME_MAP = {
+    "ARI": "Arizona Diamondbacks", "ATH": "Athletics", "OAK": "Athletics",
+    "ATL": "Atlanta Braves", "BAL": "Baltimore Orioles", "BOS": "Boston Red Sox",
+    "CHC": "Chicago Cubs", "CWS": "Chicago White Sox", "CIN": "Cincinnati Reds",
+    "CLE": "Cleveland Guardians", "COL": "Colorado Rockies", "DET": "Detroit Tigers",
+    "HOU": "Houston Astros", "KC": "Kansas City Royals", "LAA": "Los Angeles Angels",
+    "LAD": "Los Angeles Dodgers", "MIA": "Miami Marlins", "MIL": "Milwaukee Brewers",
+    "MIN": "Minnesota Twins", "NYM": "New York Mets", "NYY": "New York Yankees",
+    "PHI": "Philadelphia Phillies", "PIT": "Pittsburgh Pirates", "SD": "San Diego Padres",
+    "SF": "San Francisco Giants", "SEA": "Seattle Mariners", "STL": "St. Louis Cardinals",
+    "TB": "Tampa Bay Rays", "TEX": "Texas Rangers", "TOR": "Toronto Blue Jays",
+    "WSH": "Washington Nationals",
 }
